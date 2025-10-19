@@ -6,21 +6,21 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-const allowedOrigin = 'https://stanforduniversity.qualtrics.com' 
+const allowedOrigin = 'https://stanforduniversity.qualtrics.com'
 
-// CORS helper
+// CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-// Handle preflight requests
+// Handle preflight requests (for browser CORS)
 export async function OPTIONS() {
   return new NextResponse(null, { headers: corsHeaders })
 }
 
-// System message builder
+// Build system message
 const getSystemMessage = async (sessionId, useMemory, prolificId) => {
   let systemMessage = ''
 
@@ -30,6 +30,7 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
   } else if (sessionId === '2') {
     systemMessage = 'You are a helpful research assistant for Session 2.'
 
+    // Load memory from session 1 if enabled
     if (useMemory === 1) {
       const { data, error } = await supabase
         .from('chat_sessions')
@@ -56,10 +57,14 @@ export async function POST(req) {
     const { messages, prolific_id, session_id, task_type, use_memory } =
       await req.json()
 
-    const tableName = session_id === '2' ? 'chat_sessions_2' : 'chat_sessions'
+    // Choose table based on session
+    const tableName =
+      String(session_id) === '2' ? 'chat_sessions_2' : 'chat_sessions'
 
+    // Build system message
     const systemMessage = await getSystemMessage(session_id, use_memory, prolific_id)
 
+    // Get OpenAI completion
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -72,6 +77,7 @@ export async function POST(req) {
     const assistantMessage = completion.choices[0].message.content
     const userMessages = messages.filter((msg) => msg.role === 'user')
 
+    // Save to the table
     const { error } = await supabase
       .from(tableName)
       .upsert(
@@ -86,12 +92,10 @@ export async function POST(req) {
         { onConflict: 'prolific_id,session_id' }
       )
 
-    if (error) {
-      console.error('❌ Supabase error:', error)
-    } else {
-      console.log(`✅ Saved chat to ${tableName} for prolific_id ${prolific_id}`)
-    }
+    if (error) console.error('Supabase error:', error)
+    else console.log(`Saved to ${tableName} for ${prolific_id}`)
 
+    // Return AI message with CORS headers
     return NextResponse.json({ message: assistantMessage }, { headers: corsHeaders })
   } catch (error) {
     console.error('Error:', error)
