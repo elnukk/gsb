@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-// import { supabase } from '@/lib/supabase'
 import { supabaseServer as supabase } from '@/lib/supabaseServer'
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -24,7 +24,7 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
         .eq('session_id', '1')
         .single()
       
-      if (!error && data && data.chat_memory.length > 0) {
+      if (!error && data && data.chat_memory?.length > 0) {
         const previousChat = data.chat_memory
           .map(msg => `${msg.role}: ${msg.content}`)
           .join('\n')
@@ -40,6 +40,9 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
 export async function POST(req) {
   try {
     const { messages, prolific_id, session_id, task_type, use_memory } = await req.json()
+
+    // Determine which table to use
+    const tableName = session_id === '2' ? 'chat_sessions_2' : 'chat_sessions'
 
     // Get system message based on session
     const systemMessage = await getSystemMessage(session_id, use_memory, prolific_id)
@@ -61,17 +64,18 @@ export async function POST(req) {
 
     // Update database with user messages
     const { error } = await supabase
-      .from('chat_sessions')
-      .upsert({
-        prolific_id,
-        session_id,
-        task_type,
-        use_memory,
-        chat_memory: userMessages,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'prolific_id,session_id'
-      })
+      .from(tableName)
+      .upsert(
+        {
+          prolific_id,
+          session_id,
+          task_type,
+          use_memory,
+          chat_memory: userMessages,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'prolific_id,session_id' }
+      )
 
     if (error) {
       console.error('Supabase error:', error)
@@ -80,9 +84,6 @@ export async function POST(req) {
     return NextResponse.json({ message: assistantMessage })
   } catch (error) {
     console.error('Error:', error)
-    return NextResponse.json(
-      { error: 'Failed to process request' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 })
   }
 }
