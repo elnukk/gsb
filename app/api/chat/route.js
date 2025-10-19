@@ -2,25 +2,20 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { supabaseServer as supabase } from '@/lib/supabaseServer'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 const allowedOrigin = 'https://stanforduniversity.qualtrics.com'
 
-// CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-// Handle preflight requests (for browser CORS)
 export async function OPTIONS() {
   return new NextResponse(null, { headers: corsHeaders })
 }
 
-// Build system message
+// ----- system message -----
 const getSystemMessage = async (sessionId, useMemory, prolificId) => {
   let systemMessage = ''
 
@@ -30,60 +25,58 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
   } else if (sessionId === '2') {
     systemMessage = 'You are a helpful research assistant for Session 2.'
 
-    // Load memory from session 1 if enabled
+    // pull prior chat from session 1 table ONLY if requested
     if (useMemory === 1) {
       const { data, error } = await supabase
-        .from('chat_sessions')
+        .from('chat_sessions') // always session 1 memory source
         .select('chat_memory')
         .eq('prolific_id', prolificId)
         .eq('session_id', '1')
         .single()
 
-      if (!error && data && data.chat_memory?.length > 0) {
+      if (!error && data?.chat_memory?.length) {
         const previousChat = data.chat_memory
           .map((msg) => `${msg.role}: ${msg.content}`)
           .join('\n')
-
         systemMessage += `\n\nPrevious conversation from Session 1:\n${previousChat}\n\nPlease reference this conversation naturally when relevant.`
       }
     }
   }
-
   return systemMessage
 }
 
+// ----- main POST -----
 export async function POST(req) {
   try {
     const { messages, prolific_id, session_id, task_type, use_memory } =
       await req.json()
 
-    // Choose table based on session
+    const normalizedSession = String(session_id).trim()
     const tableName =
-      String(session_id) === '2' ? 'chat_sessions_2' : 'chat_sessions'
+      normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions'
 
-    // Build system message
-    const systemMessage = await getSystemMessage(session_id, use_memory, prolific_id)
+    console.log(`💾 Saving to table: ${tableName} (session_id=${normalizedSession})`)
 
-    // Get OpenAI completion
+    // system message
+    const systemMessage = await getSystemMessage(normalizedSession, use_memory, prolific_id)
+
+    // openai response
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
-      messages: [
-        { role: 'system', content: systemMessage },
-        ...messages,
-      ],
+      messages: [{ role: 'system', content: systemMessage }, ...messages],
       temperature: 0.7,
     })
 
     const assistantMessage = completion.choices[0].message.content
-    const userMessages = messages.filter((msg) => msg.role === 'user')
+    const userMessages = messages.filter((m) => m.role === 'user')
 
-    // Save to the table
+    // write to correct table
     const { error } = await supabase
       .from(tableName)
       .upsert(
         {
           prolific_id,
-          session_id,
+          session_id: normalizedSession,
           task_type,
           use_memory,
           chat_memory: userMessages,
@@ -93,12 +86,11 @@ export async function POST(req) {
       )
 
     if (error) console.error('Supabase error:', error)
-    else console.log(`Saved to ${tableName} for ${prolific_id}`)
+    else console.log(`Saved to ${tableName} for prolific_id ${prolific_id}`)
 
-    // Return AI message with CORS headers
     return NextResponse.json({ message: assistantMessage }, { headers: corsHeaders })
-  } catch (error) {
-    console.error('Error:', error)
+  } catch (err) {
+    console.error('Error:', err)
     return NextResponse.json(
       { error: 'Failed to process request' },
       { status: 500, headers: corsHeaders }
