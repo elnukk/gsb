@@ -6,19 +6,20 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const allowedOrigins = [
   'https://stanforduniversity.qualtrics.com',
-  'https://gsb-session1.vercel.app',  
-  'https://gsb-gray.vercel.app',      
-  'http://localhost:3000'              // For local dev
+  'https://gsb-gray.vercel.app',
+  'https://gsb-session1.vercel.app',
+  'http://localhost:3000'
 ]
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': isAllowedOrigin ? origin : 'https://stanforduniversity.qualtrics.com',
+const getCorsHeaders = (origin) => ({
+  'Access-Control-Allow-Origin': allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-}
+})
 
-export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
+export async function OPTIONS(req) {
+  const origin = req.headers.get('origin') || ''
+  return new NextResponse(null, { headers: getCorsHeaders(origin) })
 }
 
 // ----- system message -----
@@ -53,6 +54,8 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
 
 // ----- main POST -----
 export async function POST(req) {
+  const origin = req.headers.get('origin') || ''
+  
   try {
     const { messages, prolific_id, session_id, task_type, use_memory } =
       await req.json()
@@ -94,12 +97,15 @@ export async function POST(req) {
     if (error) console.error('Supabase error:', error)
     else console.log(`Saved to ${tableName} for prolific_id ${prolific_id}`)
 
-    return NextResponse.json({ message: assistantMessage }, { headers: corsHeaders })
+    return NextResponse.json(
+      { message: assistantMessage }, 
+      { headers: getCorsHeaders(origin) }
+    )
   } catch (err) {
     console.error('Error:', err)
     return NextResponse.json(
       { error: 'Failed to process request' },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: getCorsHeaders(origin) }
     )
   }
 }
