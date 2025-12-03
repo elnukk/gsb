@@ -3,10 +3,16 @@ import OpenAI from 'openai'
 import { supabaseServer as supabase } from '@/lib/supabaseServer'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-const allowedOrigin = 'https://stanforduniversity.qualtrics.com'
+
+const allowedOrigins = [
+  'https://stanforduniversity.qualtrics.com',
+  'https://gsb-session1.vercel.app',  
+  'https://gsb-gray.vercel.app',      
+  'http://localhost:3000'              // For local dev
+]
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigin,
+  'Access-Control-Allow-Origin': isAllowedOrigin ? origin : 'https://stanforduniversity.qualtrics.com',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
