@@ -53,18 +53,36 @@ const getSystemMessage = async (sessionId, useMemory, prolificId) => {
 }
 
 // ----- main POST -----
+
 export async function POST(req) {
   const origin = req.headers.get('origin') || ''
   
   try {
-    const { messages, prolific_id, session_id, task_type, use_memory } =
-      await req.json()
+    let { messages, prolific_id, session_id, task_type, use_memory } = await req.json()
 
     const normalizedSession = String(session_id).trim()
-    const tableName =
-      normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions'
+    
+    // If Session 2, fetch task_type from Session 1 if not provided
+    if (normalizedSession === '2' && !task_type) {
+      const { data, error } = await supabase
+        .from('chat_sessions')
+        .select('task_type')
+        .eq('prolific_id', prolific_id)
+        .eq('session_id', '1')
+        .single()
+      
+      if (!error && data) {
+        task_type = data.task_type
+        console.log(`Retrieved task_type from Session 1: ${task_type}`)
+      } else {
+        console.error('Could not fetch task_type from Session 1:', error)
+        task_type = 'default'
+      }
+    }
 
-    console.log(`💾 Saving to table: ${tableName} (session_id=${normalizedSession})`)
+    const tableName = normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions'
+
+    console.log(`Saving to table: ${tableName} (session_id=${normalizedSession})`)
 
     // system message
     const systemMessage = await getSystemMessage(normalizedSession, use_memory, prolific_id)
@@ -77,9 +95,39 @@ export async function POST(req) {
     })
 
     const assistantMessage = completion.choices[0].message.content
-    const userMessages = messages.filter((m) => m.role === 'user')
 
-    // write to correct table
+
+    // Get existing chat history
+    const { data: existingData } = await supabase
+      .from(tableName)
+      .select('chat_memory')
+      .eq('prolific_id', prolific_id)
+      .eq('session_id', normalizedSession)
+      .single()
+
+    // Start with existing messages or empty array
+    let allMessages = existingData?.chat_memory || []
+    
+    // Get only the NEW user message (last message in the array)
+    const newUserMessage = messages[messages.length - 1]
+    
+    // Append the new user message and assistant response
+    if (newUserMessage && newUserMessage.role === 'user') {
+      allMessages.push({
+        role: 'user',
+        content: newUserMessage.content,
+        timestamp: new Date().toISOString()
+      })
+      
+      allMessages.push({
+        role: 'assistant',
+        content: assistantMessage,
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    // ========== Save updated chat history ==========
+    
     const { error } = await supabase
       .from(tableName)
       .upsert(
@@ -88,14 +136,14 @@ export async function POST(req) {
           session_id: normalizedSession,
           task_type,
           use_memory,
-          chat_memory: userMessages,
+          chat_memory: allMessages,  // ← Now contains full history
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'prolific_id,session_id' }
       )
 
     if (error) console.error('Supabase error:', error)
-    else console.log(`Saved to ${tableName} for prolific_id ${prolific_id}`)
+    else console.log(`Saved to ${tableName} - Total messages: ${allMessages.length}`)
 
     return NextResponse.json(
       { message: assistantMessage }, 
