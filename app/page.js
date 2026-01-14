@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Loader2 } from 'lucide-react';
-import './ChatbotExperiment.css'; 
+import './ChatbotExperiment.css';
 
 export default function ChatbotExperiment() {
   const [messages, setMessages] = useState([]);
@@ -10,42 +10,73 @@ export default function ChatbotExperiment() {
   const [params, setParams] = useState({
     prolific_id: '',
     session_id: '',
-    task_type: '',
     use_memory: ''
   });
-  const messagesEndRef = useRef(null);
 
+  const messagesEndRef = useRef(null);
+  const seededRef = useRef(false);
+
+  // Keep a ref in sync with messages to avoid stale state when sending
+  const messagesRef = useRef([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Read URL params once
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     setParams({
       prolific_id: urlParams.get('prolific_id') || 'demo_user',
       session_id: urlParams.get('session_id') || '1',
-      task_type: urlParams.get('task_type') || 'default',
-      use_memory: urlParams.get('use_memory') || 'no'
+      use_memory: urlParams.get('use_memory') || '0'
     });
   }, []);
 
+  // Seed first assistant message once
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (!params.session_id) return;
+
+    seededRef.current = true;
+
+    const seeded = [
+      {
+        role: 'assistant',
+        content:
+          "You have a free Saturday coming up. Let's design a plan for how you'd like to spend it. I'll ask you some questions to understand what would make for a good weekend for you."
+      }
+    ];
+
+    setMessages(seeded);
+    messagesRef.current = seeded; // ensure ref is aligned immediately
+  }, [params.session_id]);
+
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, loading]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
-    const userMessage = { role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
+    const userMessage = { role: 'user', content: input.trim() };
+
+    // Update UI immediately
+    setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setLoading(true);
+
+    // Build outgoing messages from ref (latest), not possibly-stale state
+    const outgoingMessages = [...messagesRef.current, userMessage];
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, userMessage],
+          messages: outgoingMessages,
           prolific_id: params.prolific_id,
           session_id: params.session_id,
-          task_type: params.task_type,
           use_memory: params.use_memory
         })
       });
@@ -53,19 +84,26 @@ export default function ChatbotExperiment() {
       const data = await response.json();
 
       if (data?.message) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.message }]);
+        const assistantMsg = { role: 'assistant', content: data.message };
+        setMessages((prev) => [...prev, assistantMsg]);
+        // keep ref aligned (setMessages is async)
+        messagesRef.current = [...outgoingMessages, assistantMsg];
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Error: Please try again.' }]);
+        const assistantMsg = { role: 'assistant', content: 'Error: Please try again.' };
+        setMessages((prev) => [...prev, assistantMsg]);
+        messagesRef.current = [...outgoingMessages, assistantMsg];
       }
     } catch (err) {
       console.error(err);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection error.' }]);
+      const assistantMsg = { role: 'assistant', content: 'Connection error.' };
+      setMessages((prev) => [...prev, assistantMsg]);
+      messagesRef.current = [...outgoingMessages, assistantMsg];
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -74,20 +112,14 @@ export default function ChatbotExperiment() {
 
   return (
     <div className="chat-container">
-      {/* Header */}
       <div className="chat-header">
-        <h1>Experiment</h1>
+        <h1>Weekend Planning</h1>
         <p>
           Session {params.session_id} • {params.prolific_id}
         </p>
       </div>
 
-      {/* Messages */}
       <div className="chat-messages">
-        {messages.length === 0 && (
-          <p className="chat-placeholder">Start by typing a message below.</p>
-        )}
-
         {messages.map((msg, idx) => (
           <div
             key={idx}
@@ -106,12 +138,11 @@ export default function ChatbotExperiment() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="chat-input">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           rows={1}
           disabled={loading}

@@ -1,159 +1,194 @@
-import { NextResponse } from 'next/server'
-import OpenAI from 'openai'
-import { supabaseServer as supabase } from '@/lib/supabaseServer'
+import { NextResponse } from 'next/server';
+import OpenAI from 'openai';
+import { supabaseServer as supabase } from '@/lib/supabaseServer';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const allowedOrigins = [
   'https://stanforduniversity.qualtrics.com',
   'https://gsb-gray.vercel.app',
   'https://gsb-session1.vercel.app',
   'http://localhost:3000'
-]
+];
 
 const getCorsHeaders = (origin) => ({
   'Access-Control-Allow-Origin': allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-})
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+});
 
 export async function OPTIONS(req) {
-  const origin = req.headers.get('origin') || ''
-  return new NextResponse(null, { headers: getCorsHeaders(origin) })
+  const origin = req.headers.get('origin') || '';
+  return new NextResponse(null, { headers: getCorsHeaders(origin) });
 }
+
+const countAssistantReplies = (msgs = []) =>
+  msgs.filter((m) => m.role === 'assistant').length;
 
 // ----- system message -----
-const getSystemMessage = async (sessionId, useMemory, prolificId) => {
-  let systemMessage = ''
+const getSystemMessage = async (sessionId, useMemory, prolificId, messages) => {
+  const normalizedSession = String(sessionId).trim();
+  const useMemoryOn = String(useMemory).trim() === '1';
 
-  if (sessionId === '1') {
-    systemMessage =
-      'You are a helpful research assistant for Session 1. Engage naturally with the participant and answer their questions thoughtfully.'
-  } else if (sessionId === '2') {
-    systemMessage = 'You are a helpful research assistant for Session 2.'
+  // assistant replies so far in this conversation
+  const assistantRepliesSoFar = countAssistantReplies(messages);
+  // 6th assistant reply => 0..5 (so >=5 means we are on the 6th one)
+  const isFinalAssistantReply = assistantRepliesSoFar >= 5;
 
-    // pull prior chat from session 1 table ONLY if requested
-    if (useMemory === 1) {
-      const { data, error } = await supabase
-        .from('chat_sessions') // always session 1 memory source
-        .select('chat_memory')
-        .eq('prolific_id', prolificId)
-        .eq('session_id', '1')
-        .single()
+  let systemMessage = '';
 
-      if (!error && data?.chat_memory?.length) {
-        const previousChat = data.chat_memory
-          .map((msg) => `${msg.role}: ${msg.content}`)
-          .join('\n')
-        systemMessage += `\n\nPrevious conversation from Session 1:\n${previousChat}\n\nPlease reference this conversation naturally when relevant.`
-      }
+  if (normalizedSession === '1') {
+    systemMessage = `
+You are helping a participant design a concrete plan for their upcoming Saturday.
+
+You must do two things:
+(1) Elicit information by asking questions that cover ALL of the following:
+  - Typical day (work schedule, wake time, commitments)
+  - Energy patterns across the day
+  - Values in free time
+  - What prevents good weekends (constraints, obligations, budget)
+  - How they want the schedule presented (format/detail)
+
+(2) Then co-create a specific Saturday plan that includes:
+  - Timing (aligned with their wake-up preferences and energy patterns)
+  - Specific activities
+  - Constraint-aware choices
+  - Presented in their preferred format
+
+Turn limit requirement:
+- You may ask questions in your replies 1–5.
+- On your 6th reply, do NOT ask any questions. Deliver the best complete Saturday plan you can based on what you have.
+- If details are missing, make reasonable assumptions and state them briefly.
+
+${isFinalAssistantReply ? 'This is your 6th reply now: do not ask questions; output the final plan.' : ''}
+`.trim();
+
+    return systemMessage;
+  }
+
+  // Session 2 (keep this minimal; add your session-2 logic later)
+  systemMessage = 'You are a helpful research assistant for Session 2.';
+
+  // If in the future you need memory in session 2, this is the corrected gate:
+  if (normalizedSession === '2' && useMemoryOn) {
+    const { data, error } = await supabase
+      .from('chat_sessions') // session 1 memory source
+      .select('chat_memory')
+      .eq('prolific_id', prolificId)
+      .eq('session_id', '1')
+      .single();
+
+    if (!error && data?.chat_memory?.length) {
+      const previousChat = data.chat_memory
+        .map((msg) => `${msg.role}: ${msg.content}`)
+        .join('\n');
+      systemMessage += `
+
+Previous conversation from Session 1:
+${previousChat}
+
+Please reference this conversation naturally when relevant.
+`.trim();
     }
   }
-  return systemMessage
-}
+
+  return systemMessage;
+};
 
 // ----- main POST -----
-
 export async function POST(req) {
-  const origin = req.headers.get('origin') || ''
-  
+  const origin = req.headers.get('origin') || '';
+
   try {
-    let { messages, prolific_id, session_id, task_type, use_memory } = await req.json()
+    const body = await req.json();
 
-    const normalizedSession = String(session_id).trim()
-    
-    // If Session 2, fetch task_type from Session 1 if not provided
-    if (normalizedSession === '2' && !task_type) {
-      const { data, error } = await supabase
-        .from('chat_sessions')
-        .select('task_type')
-        .eq('prolific_id', prolific_id)
-        .eq('session_id', '1')
-        .single()
-      
-      if (!error && data) {
-        task_type = data.task_type
-        console.log(`Retrieved task_type from Session 1: ${task_type}`)
-      } else {
-        console.error('Could not fetch task_type from Session 1:', error)
-        task_type = 'default'
-      }
-    }
+    let { messages, prolific_id, session_id, use_memory } = body;
 
-    const tableName = normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions'
+    // Basic normalization
+    const normalizedSession = String(session_id || '').trim() || '1';
+    const prolificId = String(prolific_id || '').trim() || 'placeholder';
+    const useMemory = String(use_memory ?? '0').trim();
 
-    console.log(`Saving to table: ${tableName} (session_id=${normalizedSession})`)
+    const tableName = normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions';
 
-    // system message
-    const systemMessage = await getSystemMessage(normalizedSession, use_memory, prolific_id)
+    // System message (includes 6-reply cap logic)
+    const systemMessage = await getSystemMessage(
+      normalizedSession,
+      useMemory,
+      prolificId,
+      messages || []
+    );
 
-    // openai response
+    // OpenAI response
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
-      messages: [{ role: 'system', content: systemMessage }, ...messages],
-      temperature: 0.7,
-    })
+      messages: [{ role: 'system', content: systemMessage }, ...(messages || [])],
+      temperature: 0.7
+    });
 
-    const assistantMessage = completion.choices[0].message.content
-
+    const assistantMessage = completion?.choices?.[0]?.message?.content ?? 'Error: no response.';
 
     // Get existing chat history
     const { data: existingData } = await supabase
       .from(tableName)
       .select('chat_memory')
-      .eq('prolific_id', prolific_id)
+      .eq('prolific_id', prolificId)
       .eq('session_id', normalizedSession)
-      .single()
+      .single();
 
-    // Start with existing messages or empty array
-    let allMessages = existingData?.chat_memory || []
-    
-    // Get only the NEW user message (last message in the array)
-    const newUserMessage = messages[messages.length - 1]
-    
-    // Append the new user message and assistant response
+    let allMessages = existingData?.chat_memory || [];
+
+    // Append only the NEW user message + assistant response
+    const newUserMessage = (messages || [])[ (messages || []).length - 1 ];
+
     if (newUserMessage && newUserMessage.role === 'user') {
       allMessages.push({
         role: 'user',
         content: newUserMessage.content,
         timestamp: new Date().toISOString()
-      })
-      
+      });
+
       allMessages.push({
         role: 'assistant',
         content: assistantMessage,
         timestamp: new Date().toISOString()
-      })
+      });
+    } else {
+      // Fallback: if client ever sends malformed messages, still save assistant response
+      allMessages.push({
+        role: 'assistant',
+        content: assistantMessage,
+        timestamp: new Date().toISOString()
+      });
     }
 
-    // ========== Save updated chat history ==========
-    
+    // Save updated chat history
     const { error } = await supabase
       .from(tableName)
       .upsert(
         {
-          prolific_id,
+          prolific_id: prolificId,
           session_id: normalizedSession,
-          task_type,
-          use_memory,
-          chat_memory: allMessages,  // ← Now contains full history
-          updated_at: new Date().toISOString(),
+          // Keep these for logging/debugging even if you don't use them in session 1
+          use_memory: useMemory,
+          task_type: 'weekend_planning',
+          chat_memory: allMessages,
+          updated_at: new Date().toISOString()
         },
         { onConflict: 'prolific_id,session_id' }
-      )
+      );
 
-    if (error) console.error('Supabase error:', error)
-    else console.log(`Saved to ${tableName} - Total messages: ${allMessages.length}`)
+    if (error) console.error('Supabase error:', error);
 
     return NextResponse.json(
-      { message: assistantMessage }, 
+      { message: assistantMessage },
       { headers: getCorsHeaders(origin) }
-    )
+    );
   } catch (err) {
-    console.error('Error:', err)
+    console.error('Error:', err);
     return NextResponse.json(
       { error: 'Failed to process request' },
       { status: 500, headers: getCorsHeaders(origin) }
-    )
+    );
   }
 }
