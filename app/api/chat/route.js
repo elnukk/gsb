@@ -25,15 +25,13 @@ export async function OPTIONS(req) {
 const countAssistantReplies = (msgs = []) =>
   msgs.filter((m) => m.role === 'assistant').length;
 
-// ----- system message -----
-const getSystemMessage = async (sessionId, useMemory, prolificId, messages) => {
+const getSystemMessage = async (sessionId, useMemory, prolificId, messages, taskType) => {
   const normalizedSession = String(sessionId).trim();
   const useMemoryOn = String(useMemory).trim() === '1';
+  const normalizedTaskType = String(taskType || '').trim().toLowerCase();
 
-  // assistant replies so far in this conversation
   const assistantRepliesSoFar = countAssistantReplies(messages);
-  // 6th assistant reply => 0..5 (so >=5 means we are on the 6th one)
-  const isFinalAssistantReply = assistantRepliesSoFar >= 5;
+  const isFinalReply = assistantRepliesSoFar >= 5;
 
   let systemMessage = '';
 
@@ -60,34 +58,45 @@ Turn limit requirement:
 - On your 6th reply, do NOT ask any questions. Deliver the best complete Saturday plan you can based on what you have.
 - If details are missing, make reasonable assumptions and state them briefly.
 
-${isFinalAssistantReply ? 'This is your 6th reply now: do not ask questions; output the final plan.' : ''}
+${isFinalReply ? 'This is your 6th reply now: do not ask questions; output the final plan.' : ''}
 `.trim();
-
     return systemMessage;
   }
 
-  // Session 2 (keep this minimal; add your session-2 logic later)
-  systemMessage = 'You are a helpful research assistant for Session 2.';
+  if (normalizedTaskType === 'structured') {
+    systemMessage = `
+You are a helpful assistant. The user wants to plan their upcoming Saturday and develop a schedule or timetable.
 
-  // If in the future you need memory in session 2, this is the corrected gate:
+Help them create a concrete, organized plan with specific times and activities.
+Be structured and methodical in your approach.
+Ask questions to understand their preferences, then help them build a clear schedule.
+`.trim();
+  } else if (normalizedTaskType === 'exploratory') {
+    systemMessage = `
+You are a helpful assistant. The user wants to get new inspiration for how to spend their upcoming Saturday and brainstorm new ideas.
+
+Help them explore possibilities and discover fresh ideas for their weekend.
+Be creative and encouraging. Suggest diverse options they might not have considered.
+Ask open-ended questions to spark their imagination and help them think outside the box.
+`.trim();
+  } else {
+    systemMessage = 'You are a helpful research assistant for Session 2.';
+  }
+
   if (normalizedSession === '2' && useMemoryOn) {
     const { data, error } = await supabase
-      .from('chat_sessions') // session 1 memory source
-      .select('chat_memory')
-      .eq('prolific_id', prolificId)
-      .eq('session_id', '1')
-      .single();
+      .from('memory_statements')
+      .select('statement')
+      .eq('prolific_id', prolificId);
 
-    if (!error && data?.chat_memory?.length) {
-      const previousChat = data.chat_memory
-        .map((msg) => `${msg.role}: ${msg.content}`)
-        .join('\n');
+    if (!error && data?.length > 0) {
+      const memoryStatements = data.map((row) => `- ${row.statement}`).join('\n');
       systemMessage += `
 
-Previous conversation from Session 1:
-${previousChat}
+This is what you know about the user from a previous conversation:
+${memoryStatements}
 
-Please reference this conversation naturally when relevant.
+Use this information naturally in your responses when relevant. Do not explicitly mention that you have this information unless asked.
 `.trim();
     }
   }
@@ -95,31 +104,28 @@ Please reference this conversation naturally when relevant.
   return systemMessage;
 };
 
-// ----- main POST -----
 export async function POST(req) {
   const origin = req.headers.get('origin') || '';
 
   try {
     const body = await req.json();
+    let { messages, prolific_id, session_id, use_memory, task_type } = body;
 
-    let { messages, prolific_id, session_id, use_memory } = body;
-
-    // Basic normalization
     const normalizedSession = String(session_id || '').trim() || '1';
     const prolificId = String(prolific_id || '').trim() || 'placeholder';
     const useMemory = String(use_memory ?? '0').trim();
+    const taskType = String(task_type || '').trim();
 
     const tableName = normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions';
 
-    // System message (includes 6-reply cap logic)
     const systemMessage = await getSystemMessage(
       normalizedSession,
       useMemory,
       prolificId,
-      messages || []
+      messages || [],
+      taskType
     );
 
-    // OpenAI response
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [{ role: 'system', content: systemMessage }, ...(messages || [])],
@@ -128,7 +134,6 @@ export async function POST(req) {
 
     const assistantMessage = completion?.choices?.[0]?.message?.content ?? 'Error: no response.';
 
-    // Get existing chat history
     const { data: existingData } = await supabase
       .from(tableName)
       .select('chat_memory')
@@ -137,9 +142,7 @@ export async function POST(req) {
       .single();
 
     let allMessages = existingData?.chat_memory || [];
-
-    // Append only the NEW user message + assistant response
-    const newUserMessage = (messages || [])[ (messages || []).length - 1 ];
+    const newUserMessage = (messages || [])[(messages || []).length - 1];
 
     if (newUserMessage && newUserMessage.role === 'user') {
       allMessages.push({
@@ -147,14 +150,12 @@ export async function POST(req) {
         content: newUserMessage.content,
         timestamp: new Date().toISOString()
       });
-
       allMessages.push({
         role: 'assistant',
         content: assistantMessage,
         timestamp: new Date().toISOString()
       });
     } else {
-      // Fallback: if client ever sends malformed messages, still save assistant response
       allMessages.push({
         role: 'assistant',
         content: assistantMessage,
@@ -162,16 +163,14 @@ export async function POST(req) {
       });
     }
 
-    // Save updated chat history
     const { error } = await supabase
       .from(tableName)
       .upsert(
         {
           prolific_id: prolificId,
           session_id: normalizedSession,
-          // Keep these for logging/debugging even if you don't use them in session 1
           use_memory: useMemory,
-          task_type: 'weekend_planning',
+          task_type: taskType || 'weekend_planning',
           chat_memory: allMessages,
           updated_at: new Date().toISOString()
         },

@@ -10,48 +10,53 @@ export default function ChatbotExperiment() {
   const [params, setParams] = useState({
     prolific_id: '',
     session_id: '',
-    use_memory: ''
+    use_memory: '',
+    task_type: ''
   });
 
   const messagesEndRef = useRef(null);
   const seededRef = useRef(false);
-
-  // Keep a ref in sync with messages to avoid stale state when sending
   const messagesRef = useRef([]);
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Read URL params once
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     setParams({
       prolific_id: urlParams.get('prolific_id') || 'demo_user',
       session_id: urlParams.get('session_id') || '1',
-      use_memory: urlParams.get('use_memory') || '0'
+      use_memory: urlParams.get('use_memory') || '0',
+      task_type: urlParams.get('task_type') || ''
     });
   }, []);
 
-  // Seed first assistant message once
   useEffect(() => {
-    if (seededRef.current) return;
-    if (!params.session_id) return;
-
+    if (seededRef.current || !params.session_id) return;
     seededRef.current = true;
 
-    const seeded = [
-      {
-        role: 'assistant',
-        content:
-          "You have a free Saturday coming up. Let's design a plan for how you'd like to spend it. I'll ask you some questions to understand what would make for a good weekend for you."
+    let seedContent = '';
+
+    if (params.session_id === '1') {
+      seedContent = "You have a free Saturday coming up. Let's design a plan for how you'd like to spend it. I'll ask you some questions to understand what would make for a good weekend for you.";
+    } else if (params.session_id === '2') {
+      if (params.task_type === 'structured') {
+        seedContent = "Welcome! I'm here to help you plan your upcoming Saturday and develop a schedule. Let's create a timetable together - what time do you usually wake up on Saturdays?";
+      } else if (params.task_type === 'exploratory') {
+        seedContent = "Welcome! I'm here to help you get new inspiration for your upcoming Saturday and brainstorm fresh ideas. What kinds of things have you been curious to try, or what would make this Saturday feel special?";
+      } else {
+        seedContent = "Welcome! How can I help you today?";
       }
-    ];
+    } else {
+      seedContent = "Hello! How can I help you today?";
+    }
 
+    const seeded = [{ role: 'assistant', content: seedContent }];
     setMessages(seeded);
-    messagesRef.current = seeded; // ensure ref is aligned immediately
-  }, [params.session_id]);
+    messagesRef.current = seeded;
+  }, [params.session_id, params.task_type]);
 
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -60,13 +65,10 @@ export default function ChatbotExperiment() {
     if (!input.trim() || loading) return;
 
     const userMessage = { role: 'user', content: input.trim() };
-
-    // Update UI immediately
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setLoading(true);
 
-    // Build outgoing messages from ref (latest), not possibly-stale state
     const outgoingMessages = [...messagesRef.current, userMessage];
 
     try {
@@ -77,7 +79,8 @@ export default function ChatbotExperiment() {
           messages: outgoingMessages,
           prolific_id: params.prolific_id,
           session_id: params.session_id,
-          use_memory: params.use_memory
+          use_memory: params.use_memory,
+          task_type: params.task_type
         })
       });
 
@@ -86,7 +89,6 @@ export default function ChatbotExperiment() {
       if (data?.message) {
         const assistantMsg = { role: 'assistant', content: data.message };
         setMessages((prev) => [...prev, assistantMsg]);
-        // keep ref aligned (setMessages is async)
         messagesRef.current = [...outgoingMessages, assistantMsg];
       } else {
         const assistantMsg = { role: 'assistant', content: 'Error: Please try again.' };
@@ -114,9 +116,7 @@ export default function ChatbotExperiment() {
     <div className="chat-container">
       <div className="chat-header">
         <h1>Weekend Planning</h1>
-        <p>
-          Session {params.session_id} • {params.prolific_id}
-        </p>
+        <p>Session {params.session_id} • {params.prolific_id}</p>
       </div>
 
       <div className="chat-messages">
