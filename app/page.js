@@ -18,6 +18,9 @@ export default function ChatbotExperiment() {
   const seededRef = useRef(false);
   const messagesRef = useRef([]);
 
+  const userMessageCount = messages.filter(m => m.role === 'user').length;
+  const maxMessagesReached = params.session_id === '2' && userMessageCount >= 6;
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -62,7 +65,7 @@ export default function ChatbotExperiment() {
   }, [messages, loading]);
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || maxMessagesReached) return;
 
     const userMessage = { role: 'user', content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
@@ -143,11 +146,11 @@ export default function ChatbotExperiment() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
+          placeholder={maxMessagesReached ? "You've reached the message limit" : "Type a message..."}
           rows={1}
-          disabled={loading}
+          disabled={loading || maxMessagesReached}
         />
-        <button onClick={handleSend} disabled={loading || !input.trim()}>
+        <button onClick={handleSend} disabled={loading || !input.trim() || maxMessagesReached}>
           {loading ? <Loader2 className="loader" /> : <Send size={18} />}
         </button>
       </div>
