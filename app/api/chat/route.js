@@ -68,7 +68,7 @@ ${isFinalReply ? 'This is your 6th reply now: do not ask questions; output the f
 
 Help them create a concrete, organized plan with specific times and activities.
 Be structured and methodical in your approach.
-First, ask 3–5 closed-ended questions to understand their constraints, must-dos, location, budget, and energy level.
+First, ask 3–5 closed-ended questions to understand their constraints, must-dos, location, budget, and energy level. This should be conversational, not a list of questions.
 Then, produce a time-block schedule with exactly six blocks, each with a start time, end time, and a short rationale for the activity.
 `.trim();
   } else if (normalizedTaskType === 'exploratory') {
