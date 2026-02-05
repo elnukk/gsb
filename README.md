@@ -46,7 +46,7 @@ A Next.js chatbot application for a research study where participants interact w
 
 1. **User starts from Qualtrics survey** with embedded chatbot URL containing parameters:
    ```
-   https://gsb-gray.vercel.app?prolific_id=XXX&session_id=1&use_memory=0&task_type=structured
+   https://gsb-session1.vercel.app/?prolific_id=XXX&session_id=1&use_memory=0&task_type=structured
    ```
 
 2. **URL Parameters passed to chatbot:**
