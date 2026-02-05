@@ -19,7 +19,7 @@ export default function ChatbotExperiment() {
   const messagesRef = useRef([]);
 
   const userMessageCount = messages.filter(m => m.role === 'user').length;
-  const maxMessagesReached = params.session_id === '2' && userMessageCount >= 6;
+  const maxMessagesReached = params.session_id === '2' && userMessageCount >= 5;
 
   useEffect(() => {
     messagesRef.current = messages;
