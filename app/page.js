@@ -42,12 +42,16 @@ export default function ChatbotExperiment() {
     let seedContent = '';
 
     if (params.session_id === '1') {
-      seedContent = "You have a free Saturday coming up. Let's design a plan for how you'd like to spend it. I'll ask you some questions to understand what would make for a good weekend for you.";
+      seedContent = "Hi! I'd love to get to know your relationship with food and cooking. Some people love it, some see it as a chore — there's no wrong answer. To start: how would you describe your typical approach to feeding yourself (and anyone else in your household) on a regular weeknight?";
     } else if (params.session_id === '2') {
-      if (params.task_type === 'structured') {
-        seedContent = "Welcome! I'm here to help you plan your upcoming Saturday and develop a schedule. Let's create a timetable together - what time do you usually wake up on Saturdays?";
-      } else if (params.task_type === 'exploratory') {
-        seedContent = "Welcome! I'm here to help you get new inspiration for your upcoming Saturday and brainstorm fresh ideas. What kinds of things have you been curious to try, or what would make this Saturday feel special?";
+      if (params.task_type === 'structured' && params.use_memory !== '1') {
+        seedContent = "Hi! I'm here to help you build a 5-day dinner plan for the upcoming week. Tell me a bit about your cooking situation — who are you cooking for, and are there any dietary restrictions I should know about?";
+      } else if (params.task_type === 'structured' && params.use_memory === '1') {
+        seedContent = "Welcome back! I'm here to help you build a 5-day dinner plan for the upcoming week. Is there anything that's changed about your cooking situation since we last spoke?";
+      } else if (params.task_type === 'exploratory' && params.use_memory !== '1') {
+        seedContent = "Hi! I'm here to help you discover some new food experiences. Tell me a bit about what you've been cooking lately — what's been feeling stale or repetitive.";
+      } else if (params.task_type === 'exploratory' && params.use_memory === '1') {
+        seedContent = "Welcome back! I'm here to help you discover some new food experiences. Is there anything that's changed about what you've been cooking since we last spoke?";
       } else {
         seedContent = "Welcome! How can I help you today?";
       }
