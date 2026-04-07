@@ -25,19 +25,30 @@ export async function OPTIONS(req) {
 const countAssistantReplies = (msgs = []) =>
   msgs.filter((m) => m.role === 'assistant').length;
 
+// Returns the correct seed message for Session 2 based on task type and memory condition
+const getSeedMessage = (taskType, useMemoryOn) => {
+  if (taskType === 'structured') {
+    return useMemoryOn
+      ? "Welcome back! I'm here to help you build a 5-day dinner plan for the upcoming week. Is there anything that's changed about your cooking situation since we last spoke?"
+      : "Hi! I'm here to help you build a 5-day dinner plan for the upcoming week. Tell me a bit about your cooking situation — who are you cooking for, and are there any dietary restrictions I should know about?";
+  }
+  if (taskType === 'exploratory') {
+    return useMemoryOn
+      ? "Welcome back! I'm here to help you discover some new food experiences. Is there anything that's changed about what you've been cooking since we last spoke?"
+      : "Hi! I'm here to help you discover some new food experiences. Tell me a bit about what you've been cooking lately — what's been feeling stale or repetitive?";
+  }
+  return null;
+};
+
 const getSystemMessage = async (sessionId, useMemory, prolificId, messages, taskType) => {
   const normalizedSession = String(sessionId).trim();
   const useMemoryOn = String(useMemory).trim() === '1';
   const normalizedTaskType = String(taskType || '').trim().toLowerCase();
 
-  const assistantRepliesSoFar = countAssistantReplies(messages);
-  const isFinalReply = assistantRepliesSoFar >= 5;
-
   let systemMessage = '';
 
   if (normalizedSession === '1') {
-    systemMessage = `System Prompt
-You are a warm, curious assistant getting to know the user's relationship with food and cooking. Your goal is to learn as much as possible about their food life — not to produce any plan or recommendations.
+    systemMessage = `You are a warm, curious assistant getting to know the user's relationship with food and cooking. Your goal is to learn as much as possible about their food life — not to produce any plan or recommendations.
 
 Explore these areas through natural conversation, not as a checklist:
 - Cooking habits: how often they cook, skill level, how they feel about cooking (love it, tolerate it, dread it)
@@ -55,14 +66,17 @@ Ask genuine follow-up questions. If they mention something in passing — e.g., 
   }
 
   if (normalizedTaskType === 'structured') {
-    systemMessage = `System Prompt:
-You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
+    systemMessage = `You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
 
 Make sure you understand the user's situation before producing the plan — their dietary restrictions, household size, time constraints, budget, and kitchen setup. Ask questions if you need information you don't already have.
 
 Produce a 5-day dinner plan. For each day, include: the meal name, estimated prep/cook time, a brief ingredient list, and a one-sentence rationale for why it fits their constraints. Then provide a consolidated grocery list and a short weekend prep guide for anything that can be done in advance.`.trim();
   } else if (normalizedTaskType === 'exploratory') {
-    systemMessage = `System Prompt: You are a creative, encouraging assistant. The user wants to discover new food experiences — unfamiliar cuisines, unexpected ingredients, cooking techniques they haven't tried, or completely new ways of thinking about meals. Make sure you understand what the user is looking for before suggesting ideas — their current food mood, what feels stale, how adventurous they're feeling, and whether they're cooking solo or with others. Ask questions if you need information you don't already have. Suggest 6 diverse ideas organized into 2-3 thematic clusters (e.g., "Flavor Adventures," "Hands-On Experiments," "Social Food Experiences"). Include at least 2 ideas that are genuinely unexpected — things most people wouldn't think of on their own. Ask the user which direction excites them before going deeper.`.trim();
+    systemMessage = `You are a creative, encouraging assistant. The user wants to discover new food experiences — unfamiliar cuisines, unexpected ingredients, cooking techniques they haven't tried, or completely new ways of thinking about meals.
+
+Make sure you understand what the user is looking for before suggesting ideas — their current food mood, what feels stale, how adventurous they're feeling, and whether they're cooking solo or with others. Ask questions if you need information you don't already have.
+
+Suggest 6 diverse ideas organized into 2-3 thematic clusters (e.g., "Flavor Adventures," "Hands-On Experiments," "Social Food Experiences"). Include at least 2 ideas that are genuinely unexpected — things most people wouldn't think of on their own. Ask the user which direction excites them before going deeper.`.trim();
   } else {
     systemMessage = 'You are a helpful research assistant for Session 2.';
   }
@@ -77,8 +91,7 @@ Produce a 5-day dinner plan. For each day, include: the meal name, estimated pre
       const memoryStatements = data.map((row) => `- ${row.statement}`).join('\n');
 
       if (normalizedTaskType === 'structured') {
-        systemMessage = `System Prompt:
-You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
+        systemMessage = `You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
 
 Here is what you know about the user from a previous conversation:
 ${memoryStatements}
@@ -105,8 +118,7 @@ Suggest 6 diverse ideas organized into 2-3 thematic clusters (e.g., "Flavor Adve
 This is what you know about the user from a previous conversation:
 ${memoryStatements}
 
-Use this information naturally in your responses when relevant. Do not explicitly mention that you have this information unless asked.
-`.trim();
+Use this information naturally in your responses when relevant. Do not explicitly mention that you have this information unless asked.`.trim();
       }
     }
   }
@@ -124,9 +136,58 @@ export async function POST(req) {
     const normalizedSession = String(session_id || '').trim() || '1';
     const prolificId = String(prolific_id || '').trim() || 'placeholder';
     const useMemory = String(use_memory ?? '0').trim();
-    const taskType = String(task_type || '').trim();
+    const useMemoryOn = useMemory === '1';
+    const taskType = String(task_type || '').trim().toLowerCase();
 
     const tableName = normalizedSession === '2' ? 'chat_sessions_2' : 'chat_sessions';
+
+    // For Session 2, inject the seed message as the first assistant turn
+    // if no messages have been exchanged yet (i.e. this is the opening request)
+    const isOpening = normalizedSession === '2' && (!messages || messages.length === 0);
+
+    if (isOpening) {
+      const seedMessage = getSeedMessage(taskType, useMemoryOn);
+
+      if (seedMessage) {
+        // Persist the seed message as the first assistant turn
+        const { data: existingData } = await supabase
+          .from(tableName)
+          .select('chat_memory')
+          .eq('prolific_id', prolificId)
+          .eq('session_id', normalizedSession)
+          .single();
+
+        const allMessages = existingData?.chat_memory || [];
+
+        // Only insert seed if the conversation is truly empty
+        if (allMessages.length === 0) {
+          allMessages.push({
+            role: 'assistant',
+            content: seedMessage,
+            timestamp: new Date().toISOString()
+          });
+
+          await supabase
+            .from(tableName)
+            .upsert(
+              {
+                prolific_id: prolificId,
+                session_id: normalizedSession,
+                use_memory: useMemory,
+                task_type: taskType || 'unknown',
+                chat_memory: allMessages,
+                updated_at: new Date().toISOString()
+              },
+              { onConflict: 'prolific_id,session_id' }
+            );
+        }
+
+        return NextResponse.json(
+          { message: seedMessage },
+          { headers: getCorsHeaders(origin) }
+        );
+      }
+    }
 
     const systemMessage = await getSystemMessage(
       normalizedSession,
