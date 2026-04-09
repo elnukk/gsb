@@ -123,7 +123,7 @@ export default function ChatbotExperiment() {
   return (
     <div className="chat-container">
       <div className="chat-header">
-        <h1>Weekend Planning</h1>
+        <h1>Meal Planning</h1>
         <p>Session {params.session_id} • {params.prolific_id}</p>
       </div>
 
