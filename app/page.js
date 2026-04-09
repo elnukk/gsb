@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import './ChatbotExperiment.css';
 
 export default function ChatbotExperiment() {
@@ -132,7 +133,7 @@ export default function ChatbotExperiment() {
             key={idx}
             className={`chat-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}
           >
-            {msg.content}
+            <ReactMarkdown>{msg.content}</ReactMarkdown>
           </div>
         ))}
 
