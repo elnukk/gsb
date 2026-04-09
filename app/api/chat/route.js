@@ -99,7 +99,7 @@ Once you have a full picture, produce a 5-day dinner plan. For each day, include
       .eq('prolific_id', prolificId);
 
     if (!error && data?.length > 0) {
-      const memoryStatements = data.map((row) => `- ${row.statement}`).join('\n');
+      const memoryStatements = data.map((row) => `- ${row.memory_statement}`).join('\n');
 
       if (normalizedTaskType === 'structured') {
         systemMessage = `You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
