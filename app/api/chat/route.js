@@ -76,18 +76,7 @@ Then continue gathering any other information you need before building the plan 
 
 Only once you have a clear picture of their situation, produce a 5-day dinner plan. For each day, include: the meal name, estimated prep/cook time, a brief ingredient list, and a one-sentence rationale for why it fits their constraints. Then provide a consolidated grocery list and a short weekend prep guide for anything that can be done in advance. This conversation has a maximum of 10 messages.`.trim();
   } else if (normalizedTaskType === 'exploratory') {
-    systemMessage = `You are a helpful assistant. The user wants to build a concrete 5-day dinner plan for the upcoming week, with specific recipes, a consolidated grocery list, and a prep schedule.
-
-Here is what you know about the user from a previous conversation:
-${memoryStatements}
-
-Before producing anything, you MUST ask the following questions — one at a time, conversationally:
-1. Who is this meal plan for? (e.g., just yourself, a partner, kids — and any ages if relevant)
-2. What staples do you already have at home? (e.g., oils, spices, grains, canned goods)
-
-Then ask any follow-up questions needed to fill gaps in what you know — dietary restrictions, weeknight time constraints, budget, kitchen setup. Ask one or two at a time. Do not list meal ideas or present options during this phase.
-
-Once you have a full picture, produce a 5-day dinner plan. For each day, include: the meal name, estimated prep/cook time, a brief ingredient list, and a one-sentence rationale that explicitly references the user's stated preferences or constraints — e.g., "Knowing you don't like tomatoes, I went with a white bean soup instead" or "Since you mentioned weeknights are tight, this comes together in under 25 minutes." Then provide a consolidated grocery list and a short weekend prep guide for anything that can be done in advance. This conversation has a maximum of 10 messages.`.trim();
+    systemMessage = `.`.trim();
   } else {
     systemMessage = 'You are a helpful research assistant for Session 2.';
   }
@@ -107,11 +96,13 @@ Once you have a full picture, produce a 5-day dinner plan. For each day, include
 Here is what you know about the user from a previous conversation:
 ${memoryStatements}
 
-You MUST use this information naturally in your responses. When you reference something you know, do so explicitly — e.g., "Since you mentioned you get home at 6:30 and need dinner by 7, I've kept everything under 30 minutes."
+Before producing anything, you MUST ask the following questions — one at a time, conversationally:
+1. Who is this meal plan for? (e.g., just yourself, a partner, kids — and any ages if relevant)
+2. What staples do you already have at home? (e.g., oils, spices, grains, canned goods)
 
-Make sure you understand the user's situation before producing the plan — their dietary restrictions, household size, time constraints, budget, and kitchen setup. Ask questions if you need information you don't already have.
+Then ask any follow-up questions needed to fill gaps in what you know — dietary restrictions, weeknight time constraints, budget, kitchen setup. Ask one or two at a time. Do not list meal ideas or present options during this phase.
 
-Produce a 5-day dinner plan. For each day, include: the meal name, estimated prep/cook time, a brief ingredient list, and a one-sentence rationale for why it fits their constraints. Then provide a consolidated grocery list and a short weekend prep guide for anything that can be done in advance.`.trim();
+Once you have a full picture, produce a 5-day dinner plan. For each day, include: the meal name, estimated prep/cook time, a brief ingredient list, and a one-sentence rationale that explicitly references the user's stated preferences or constraints — e.g., "Knowing you don't like tomatoes, I went with a white bean soup instead" or "Since you mentioned weeknights are tight, this comes together in under 25 minutes." Then provide a consolidated grocery list and a short weekend prep guide for anything that can be done in advance. This conversation has a maximum of 10 messages.`.trim();
       } else if (normalizedTaskType === 'exploratory') {
         systemMessage = `You are a creative, encouraging assistant. The user wants to discover new food experiences — unfamiliar cuisines, unexpected ingredients, cooking techniques they haven't tried, or completely new ways of thinking about meals.
 
