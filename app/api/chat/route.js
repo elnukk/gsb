@@ -95,7 +95,7 @@ Once you have a full picture, produce a 5-day dinner plan. For each day, include
   if (normalizedSession === '2' && useMemoryOn) {
     const { data, error } = await supabase
       .from('memory_statements')
-      .select('statement')
+      .select('memory_statement')
       .eq('prolific_id', prolificId);
 
     if (!error && data?.length > 0) {
